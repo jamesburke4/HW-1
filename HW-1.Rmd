@@ -1,6 +1,6 @@
 ---
 title: "MATH 216 Homework 1"
-author: "WRITE YOUR NAME HERE"
+author: "James Burke"
 output:
   html_document:
     toc: true
@@ -9,11 +9,13 @@ output:
     smooth_scroll: false
 ---
 
-```{r, echo=FALSE, message=FALSE, cache=TRUE}
+```{r, echo=FALSE, message=FALSE}
 library(ggplot2)
 library(dplyr)
 # For read_csv() command, which is an improved version of base R's read.csv()
 library(readr) 
+library(lubridate)
+library(knitr)
 
 # Load data sets. Note this assumes this .Rmd files is in the same directory as
 # the .csv files.
@@ -35,10 +37,11 @@ states <- read_csv("data/states.csv")
 Please indicate
 
 * Who you collaborated with:
-* Roughly how much time you spent on this HW so far:
-* The URL of the RPubs published URL [here](https://www.nhl.com/).
-* What gave you the most trouble:
+* Roughly how much time you spent on this HW so far: 7 hours
+* The URL of the RPubs published URL [here](https://github.com/jamesburke4/HW-1.git).
+* What gave you the most trouble: Making plots or making variables in order to get the plots to look the way I wanted them to look.
 * Any comments you have:
+    - Airports ECP and BKG (included in flights data) are not detailed in the airports data. So when analyzing by state, my analysis       currently leaves flights to these airports out. Should we do more research to include these airports?
 
 
 
@@ -51,16 +54,38 @@ Plot a "time series" of the proportion of flights that were delayed by > 30 minu
 * the x-axis should be some notion of time
 * the y-axis should be the proportion.
 
-Using this plot, indicate describe the
+Using this plot, describe the
 [seasonality](https://en.wikipedia.org/wiki/Seasonality) of when delays over 30
 minutes tend to occur.
 
-```{r, echo=FALSE, message=FALSE, fig.width=12, fig.height=6}
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=6}
+flights <- flights %>% 
+  mutate(Delayed.30 = ifelse(dep_delay > 30, "Yes", "No")) %>% 
+  mutate(month = month(flights$date, label = TRUE, abbr = TRUE))
 
+num.flights <- flights %>% 
+  group_by(month) %>% 
+  tally() %>% 
+  rename(total.flights = n)
+
+num.delayed.30 <- flights %>% 
+  group_by(month) %>% 
+  filter(Delayed.30 == "Yes") %>% 
+  tally() %>% 
+  rename(del.30.more = n)
+
+prop.delayed.30 <- left_join(num.flights, num.delayed.30, by = "month") %>% 
+  mutate(prop = round(del.30.more / total.flights, 3))
+
+ggplot(data = prop.delayed.30, aes(x = month, y = prop)) +
+  geom_bar(stat="identity", fill = "dark blue") +
+  labs(x = "Month", y = "Proportion Delayed > 30 Minutes", title = "Flights Delayed > 30 Minutes")
 ```
 
 
+This chart shows evidence of seasonality in regards to flight delays of more than 30 minutes. The most common time of the year for long delays is the late spring/early summer. There is also a spike in the month of December, likely due to the rush of the holiday season. The proportion of flights delayed more than 30 minutes steadily rises as the weather heats up, increasing every month from January to July. On the flip side, the fall months, as well as late summer, have the lowest proportion of any time period.
 
+It is important to note, however, that this specific seasonality may not hold true for flights departing from all over the country. It is reasonable to suspect that northern cities would see higher proportions in the winter months due to inclement weather. This may also be true for other southern cities that provide more frequent trips to the northern part of the country.
 
 
 ## Question 2:
@@ -68,12 +93,48 @@ minutes tend to occur.
 Some people prefer flying on older planes.  Even though they aren't as nice,
 they tend to have more room.  Which airlines should these people favor?
 
-```{r, echo=FALSE, fig.width=12, fig.height=6}
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=6}
+tally.flights <- flights %>%
+  group_by(carrier, plane) %>% 
+  tally()
 
+plane.age <- inner_join(planes, tally.flights, by = "plane") %>% 
+  filter(!is.na(year)) %>% 
+  select(plane, year, carrier) %>% 
+  mutate(age = 2011 - year)
+
+output <- group_by(plane.age, carrier) %>% 
+  tally() %>% 
+  rename(Code = carrier) %>% 
+  mutate(Carrier = if(Code==c("AA", "AS", "B6", "CO", "DL", "EV", "F9", "FL", "MQ", "OO", "UA", "US", "WN", "XE", "YV")) 
+    c("American", "Alaska", "JetBlue", "Continental", "Delta", "Atlantic Southeast", "Frontier", "AirTran", 
+      "Envoy Air", "SkyWest", "United", "US Air", "Southwest", "ExpressJet", "Mesa")) %>% 
+  mutate("Number of Planes" = n) %>% 
+  select (-n) %>% 
+  kable()
+output
 ```
 
 
 
+Since Envoy Air only used two planes for their flights from the George Bush Intercontinental Airport in 2011, I have decided to exclude them from the analysis on plane ages. For reference, the two planes used by Envoy Air were 28 and 37 years old.
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=6}
+plane.age <- plane.age %>% 
+  filter(carrier != "MQ")    # only 2 planes, insufficient data
+
+ggplot(data=plane.age, aes(x=carrier, y=age)) + 
+  geom_boxplot(color = "dark blue", fill = "light blue") +   # outlier.shape = NA, 
+  ylim(0, 40) +
+  labs(x = "Airline Carrier", y = "Plane Age", title = "Plane Age by Carrier")
+```
+
+
+The graph above shows that people who prefer older planes should fly American Airlines. Not only did American Airlines have the highest median plane age, but they also flew only one plane newer than 14 years olds out of Houston in 2011. While only one other airline had a median plane age older than 14, every American Airlines plane but one was at least 14 years old.
+
+Other than American Airlines, customers looking for older planes may want to seek out flights from Delta or United Airlines. Delta had second highest median of all the carriers, but the range of ages (1 year to 36 years) was larger than any other airline. United Airlines had a reasonably high median of 13 years old, but it had the highest minimum, 9 years.
 
 
 ## Question 3:
@@ -84,11 +145,36 @@ they tend to have more room.  Which airlines should these people favor?
 For example, Southwest Airlines Flight 60 to Dallas consists of a single flight
 path, but since it flew 299 times in 2013, it would be counted as 299 flights.
 
-```{r, echo=FALSE, message=FALSE, fig.width=12, fig.height=6}
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=6}
+airports <- airports %>% 
+  rename(dest = iata)
+flights.airports <- left_join(flights, airports, by = "dest") %>% 
+  select(carrier, flight, dest, state)
 
+# Flight Paths
+sw.flight.paths <- flights.airports %>% 
+  filter(carrier == "WN") %>% 
+  group_by(state, flight) %>% 
+  tally() %>% 
+  mutate(Freq = 1) %>% 
+  summarise(Freq = sum(Freq))
+
+ggplot(data = sw.flight.paths, aes(x = state, y = Freq)) +
+  geom_bar(stat="identity", fill = "dark red") +
+  labs(x = "Destination State", y = "Number of Flight Paths", title = "Southwest Flight Paths by State")
+
+# Flights
+sw.flights <- flights.airports %>% 
+  filter(carrier == "WN") %>% 
+  group_by(state) %>% 
+  tally()
+
+ggplot(data = sw.flights, aes(x = state, y = n)) +
+  geom_bar(stat="identity", fill = "dark blue") +
+  labs(x = "Destination State", y = "Number of Flights", title = "Southwest Flights by State")
 ```
 
-
+Both the flight path and flight charts show similar distribution among the destination states. Intuitively, Texas is far and away the most frequented state in terms of flight paths and overall flights. After that, popular tourist states Florida and California, as well as Texas border states Louisiana and Oklahoma, stand out as states that are frequent destinations for Houston flights.
 
 
 
@@ -98,6 +184,23 @@ I want to know proportionately what regions (NE, south, west, midwest) each
 carrier flies to/from Houston in the month of July.  Consider the `month()`
 function from the `lubridate` package.
 
-```{r, echo=FALSE, message=FALSE, fig.width=12, fig.height=6}
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=6}
 
+temp <- left_join(flights, airports, by = "dest")
+
+july.flights <- left_join(temp, states, by = "state") %>% 
+  filter(month == "Jul") %>% 
+  select(carrier, region) %>% 
+  group_by(carrier, region) %>% 
+  tally() %>% 
+  filter(!is.na(region))
+
+ggplot(data = july.flights, aes(x = carrier, y = n, fill = region)) +
+  geom_bar(stat="identity", position="fill") +
+  labs(x = "Airline Carrier", y = "Proportion", title = "Regional Destinations by Airline Carrier, July 2011")
 ```
+
+Only 3 of the 15 carriers had flights from Houston to all four regions in July 2011: Continental, SkyWest, and Southwest Airlines. Most carriers frequented western and southern states more often than the other two regions. Only two airlines did not have at leat half of its flights arrive in the southern or western region: JetBlue (which only flew to JFK in New York) and Atlantic Southeast.
+
+
+
