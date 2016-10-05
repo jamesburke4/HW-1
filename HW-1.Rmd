@@ -16,6 +16,7 @@ library(dplyr)
 library(readr) 
 library(lubridate)
 library(knitr)
+library(forcats)
 
 # Load data sets. Note this assumes this .Rmd files is in the same directory as
 # the .csv files.
@@ -37,14 +38,10 @@ states <- read_csv("data/states.csv")
 Please indicate
 
 * Who you collaborated with:
-* Roughly how much time you spent on this HW so far: 7 hours
-* The URL of the RPubs published URL [here](https://github.com/jamesburke4/HW-1.git).
+* Roughly how much time you spent on this HW so far: 11 hours
+* The URL of the RPubs published URL [here](http://rpubs.com/jamesburke4/HW-1).
 * What gave you the most trouble: Making plots or making variables in order to get the plots to look the way I wanted them to look.
 * Any comments you have:
-    - Airports ECP and BKG (included in flights data) are not detailed in the airports data. So when analyzing by state, my analysis       currently leaves flights to these airports out. Should we do more research to include these airports?
-
-
-
 
 
 ## Question 1:
@@ -60,24 +57,15 @@ minutes tend to occur.
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=6}
 flights <- flights %>% 
-  mutate(Delayed.30 = ifelse(dep_delay > 30, "Yes", "No")) %>% 
   mutate(month = month(flights$date, label = TRUE, abbr = TRUE))
 
-num.flights <- flights %>% 
+prop_delayed_30 <- flights %>% 
+  filter(!is.na(dep_delay)) %>% 
+  mutate(delayed_30 = ifelse(dep_delay > 30, TRUE, FALSE)) %>% 
   group_by(month) %>% 
-  tally() %>% 
-  rename(total.flights = n)
+  summarise(prop=mean(delayed_30))
 
-num.delayed.30 <- flights %>% 
-  group_by(month) %>% 
-  filter(Delayed.30 == "Yes") %>% 
-  tally() %>% 
-  rename(del.30.more = n)
-
-prop.delayed.30 <- left_join(num.flights, num.delayed.30, by = "month") %>% 
-  mutate(prop = round(del.30.more / total.flights, 3))
-
-ggplot(data = prop.delayed.30, aes(x = month, y = prop)) +
+ggplot(data = prop_delayed_30, aes(x = month, y = prop)) +
   geom_bar(stat="identity", fill = "dark blue") +
   labs(x = "Month", y = "Proportion Delayed > 30 Minutes", title = "Flights Delayed > 30 Minutes")
 ```
@@ -94,25 +82,29 @@ Some people prefer flying on older planes.  Even though they aren't as nice,
 they tend to have more room.  Which airlines should these people favor?
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=6}
-tally.flights <- flights %>%
+tally_flights <- flights %>%
   group_by(carrier, plane) %>% 
   tally()
 
-plane.age <- inner_join(planes, tally.flights, by = "plane") %>% 
+plane_age <- inner_join(planes, tally_flights, by = "plane") %>% 
   filter(!is.na(year)) %>% 
   select(plane, year, carrier) %>% 
-  mutate(age = 2011 - year)
+  mutate(age = 2011 - year) %>% 
+  rename(code = carrier)
 
-output <- group_by(plane.age, carrier) %>% 
+code_carrier <- data_frame(
+  code = c("AA", "AS", "B6", "CO", "DL", "EV", "F9", "FL", "MQ", "OO", "UA", "US", "WN", "XE", "YV"),
+  carrier = c("American", "Alaska", "JetBlue", "Continental", "Delta", "Atlantic Southeast", "Frontier", "AirTran", 
+      "Envoy Air", "SkyWest", "United", "US Air", "Southwest", "ExpressJet", "Mesa")
+)
+
+plane_age <- left_join(plane_age, code_carrier, by = "code")
+
+output <- group_by(plane_age, code, carrier) %>% 
   tally() %>% 
-  rename(Code = carrier) %>% 
-  mutate(Carrier = if(Code==c("AA", "AS", "B6", "CO", "DL", "EV", "F9", "FL", "MQ", "OO", "UA", "US", "WN", "XE", "YV")) 
-    c("American", "Alaska", "JetBlue", "Continental", "Delta", "Atlantic Southeast", "Frontier", "AirTran", 
-      "Envoy Air", "SkyWest", "United", "US Air", "Southwest", "ExpressJet", "Mesa")) %>% 
-  mutate("Number of Planes" = n) %>% 
-  select (-n) %>% 
-  kable()
-output
+  mutate("number of planes" = n) %>% 
+  select(-n) 
+output %>% kable()
 ```
 
 
@@ -122,10 +114,10 @@ Since Envoy Air only used two planes for their flights from the George Bush Inte
 
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=6}
-plane.age <- plane.age %>% 
-  filter(carrier != "MQ")    # only 2 planes, insufficient data
+plane_age <- plane_age %>% 
+  filter(code != "MQ")    # only 2 planes, insufficient data
 
-ggplot(data=plane.age, aes(x=carrier, y=age)) + 
+ggplot(data=plane_age, aes(x=fct_reorder(f=carrier, x=age, fun=median, na.rm=TRUE), y=age)) + 
   geom_boxplot(color = "dark blue", fill = "light blue") +   # outlier.shape = NA, 
   ylim(0, 40) +
   labs(x = "Airline Carrier", y = "Plane Age", title = "Plane Age by Carrier")
@@ -148,28 +140,32 @@ path, but since it flew 299 times in 2013, it would be counted as 299 flights.
 ```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=6}
 airports <- airports %>% 
   rename(dest = iata)
-flights.airports <- left_join(flights, airports, by = "dest") %>% 
-  select(carrier, flight, dest, state)
+flights_airports <- left_join(flights, airports, by = "dest") %>% 
+  select(carrier, flight, dest, state, month)
+
+# Linking states with airports that lack state info
+flights_airports$state[flights_airports$dest=="BKG"] <- "MO"
+flights_airports$state[flights_airports$dest=="ECP"] <- "FL"
 
 # Flight Paths
-sw.flight.paths <- flights.airports %>% 
+sw_paths <- flights_airports %>% 
   filter(carrier == "WN") %>% 
   group_by(state, flight) %>% 
   tally() %>% 
   mutate(Freq = 1) %>% 
   summarise(Freq = sum(Freq))
 
-ggplot(data = sw.flight.paths, aes(x = state, y = Freq)) +
+ggplot(data = sw_paths, aes(x=fct_reorder(f=state, x=Freq, fun=max, na.rm=TRUE), y = Freq)) +
   geom_bar(stat="identity", fill = "dark red") +
   labs(x = "Destination State", y = "Number of Flight Paths", title = "Southwest Flight Paths by State")
 
 # Flights
-sw.flights <- flights.airports %>% 
+sw_flights <- flights_airports %>% 
   filter(carrier == "WN") %>% 
   group_by(state) %>% 
   tally()
 
-ggplot(data = sw.flights, aes(x = state, y = n)) +
+ggplot(data = sw_flights, aes(x=fct_reorder(f=state, x=n, fun=max, na.rm=TRUE), y = n)) +
   geom_bar(stat="identity", fill = "dark blue") +
   labs(x = "Destination State", y = "Number of Flights", title = "Southwest Flights by State")
 ```
@@ -185,17 +181,14 @@ carrier flies to/from Houston in the month of July.  Consider the `month()`
 function from the `lubridate` package.
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=6}
-
-temp <- left_join(flights, airports, by = "dest")
-
-july.flights <- left_join(temp, states, by = "state") %>% 
+july_flights <- left_join(flights_airports, states, by = "state") %>% 
   filter(month == "Jul") %>% 
   select(carrier, region) %>% 
   group_by(carrier, region) %>% 
   tally() %>% 
   filter(!is.na(region))
 
-ggplot(data = july.flights, aes(x = carrier, y = n, fill = region)) +
+ggplot(data = july_flights, aes(x = carrier, y = n, fill = region)) +
   geom_bar(stat="identity", position="fill") +
   labs(x = "Airline Carrier", y = "Proportion", title = "Regional Destinations by Airline Carrier, July 2011")
 ```
